@@ -1,134 +1,54 @@
-import * as THREE from "three";
-import {
-  EffectComposer,
-  GLTFLoader,
-  RenderPixelatedPass,
-} from "three/examples/jsm/Addons.js";
+import { Scene } from "~/core/scene";
 
-// @ts-ignore
-import poolTableSrc from "~/assets/pool-table/scene.gltf";
-// @ts-ignore
-import rouletteTableSrc from "~/assets/roulette-table/scene.gltf";
-// @ts-ignore
-import cardSrc from "~/assets/cards/1-H.png";
+import cardFlipAudio from "~/assets/sounds/card-flip.mp3";
 
-// @ts-ignore
-import dealerSrc from "~/assets/dealer/scene.gltf";
+const scene = new Scene();
 
-import { Card } from "~/core/card";
-import { Deck } from "./core/deck";
+window.addEventListener("resize", () => {
+  Scene.screenResolution.set(window.innerWidth, window.innerHeight);
+  Scene.aspectRatio = Scene.screenResolution.x / Scene.screenResolution.y;
 
-import cardFlipAudioSrc from "~/assets/sounds/card-flip.mp3";
+  scene.getRenderer().setSize(Scene.screenResolution.x, Scene.screenResolution.y);
 
-const cardFlipAudio = new Audio(cardFlipAudioSrc);
-
-const screenResolution = new THREE.Vector2(
-  window.innerWidth,
-  window.innerHeight
-);
-
-const aspectRatio = screenResolution.x / screenResolution.y;
-
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 1000);
-
-camera.position.set(0, 10, 10);
-camera.lookAt(scene.position);
-
-const renderer = new THREE.WebGLRenderer({ antialias: false });
-
-renderer.setSize(screenResolution.x, screenResolution.y);
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-document.body.appendChild(renderer.domElement);
-
-const composer = new EffectComposer(renderer);
-const renderPass = new RenderPixelatedPass(2, scene, camera);
-
-composer.addPass(renderPass);
-
-const tableGeometry = new THREE.PlaneGeometry(40, 20);
-const tableMaterial = new THREE.MeshBasicMaterial({
-  color: 0x4e9164,
-  side: THREE.DoubleSide,
-});
-const tableMesh = new THREE.Mesh(tableGeometry, tableMaterial);
-
-tableMesh.rotation.x = -Math.PI / 2;
-
-const deck = await Deck.create();
-
-deck.shuffle();
-
-// ...
-
-for (const [i, card] of deck.getCards().entries()) {
-  card.mesh.position.set(12 + i * 0.1, 1, -6);
-
-  card.mesh.rotation.x = -Math.PI / 2;
-  card.mesh.rotation.y = Math.PI / 2;
-
-  scene.add(card.mesh);
-}
-
-const loader = new GLTFLoader();
-
-const ambientLight = new THREE.AmbientLight(0xffffff, 2);
-scene.add(ambientLight);
-
-loader.load(poolTableSrc, (gltf) => {
-  gltf.scene.position.set(10, 0, -20);
-  gltf.scene.castShadow = true;
-  gltf.scene.receiveShadow = true;
-
-  scene.add(gltf.scene);
+  scene.getCamera().aspect = Scene.aspectRatio;
+  scene.getCamera().updateProjectionMatrix();
 });
 
-loader.load(dealerSrc, (gltf) => {
-  // Set the dealer's position
-  gltf.scene.position.set(0, 3, -5);
+let i = 0;
 
-  gltf.scene.castShadow = true;
-  gltf.scene.receiveShadow = true;
+window.addEventListener("click", () => {
+  const audio = new Audio(cardFlipAudio);
+  audio.play();
 
-  gltf.scene.scale.set(0.1, 0.1, 0.1);
+  scene.getDeck().draw(0 + i / 2, 1 + i * 0.01, 0);
 
-  scene.add(gltf.scene);
+  i = (i + 1) % 52;
 });
 
-scene.add(tableMesh);
+window.addEventListener("DOMContentLoaded", async () => {
+  let animationID: number | null = null;
 
-const targetRotation = new THREE.Quaternion().setFromAxisAngle(
-  new THREE.Vector3(1, 0, 0),
-  -Math.PI / 2
-);
+  function start() {
+    if (animationID !== null) return;
 
-const speed = 0.1;
-const cardSoundPlayed = Array(6).fill(false); // Create an array to track if the sound has been played for each card
+    const loop = () => {
+      scene.update();
+      scene.render();
 
-function moveCard(index: number) {
-  const targetPosition = new THREE.Vector3(0 + index / 2, 1 + index * 0.01, 4);
+      animationID = requestAnimationFrame(loop);
+    };
 
-  deck.getCards()[index].mesh.position.lerp(targetPosition, speed);
-  deck.getCards()[index].mesh.quaternion.slerp(targetRotation, speed);
-
-  // Play sound only if it hasn't been played for this card
-  if (!cardSoundPlayed[index]) {
-    cardFlipAudio.play();
-    cardSoundPlayed[index] = true;
-  }
-}
-
-function animate() {
-  requestAnimationFrame(animate);
-
-  for (let i = 1; i <= 5; i++) {
-    setTimeout(() => moveCard(i), i * 500); // Delay each card's movement by 1 second
+    loop();
   }
 
-  composer.render();
-}
+  function stop() {
+    if (animationID === null) return;
 
-animate();
+    cancelAnimationFrame(animationID);
+    animationID = null;
+  }
+
+  await scene.load();
+
+  start();
+});
