@@ -3,6 +3,7 @@ import { Card } from "~/core/card";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { Scene } from "~/core/scene";
+import { Player } from "./player";
 
 class Deck {
   private cards: Card[];
@@ -99,24 +100,33 @@ class Deck {
     this.rotatingCards = newRotatingCards;
   }
 
-  public drawAt(index: number, x: number, y: number, z: number) {
-    const card = this.cards.at(index);
+  public draw(n: number, player: Player) {
+    const audio = new Audio("/src/assets/sounds/card-flip-2.mp3");
+    audio.play();
 
-    if (card === undefined) {
-      return;
+    for (let i = 0; i < n; i++) {
+      const card = this.cards.shift();
+
+      if (card) {
+        card.setTargetPosition(
+          player.getCardArea().position.x + player.getHand().length * 0.5,
+          1 + player.getHand().length * 0.05,
+          player.getCardArea().position.z
+        );
+
+        this.movingCards.push(card);
+
+        if (player.isDealer() && i === 0 && n == 2) {
+          card.hide();
+        } else {
+          card.show();
+        }
+
+        this.rotatingCards.push(card);
+
+        player.addCard(card);
+      }
     }
-
-    this.cards.splice(index, 1);
-
-    this.movingCards.push(card);
-    this.rotatingCards.push(card);
-
-    card.setTargetPosition(x, y, z);
-    card.setTargetRotation(1, 0, 0);
-  }
-
-  public draw(x: number, y: number, z: number) {
-    this.drawAt(0, x, y, z);
   }
 }
 

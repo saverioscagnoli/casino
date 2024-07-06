@@ -68,12 +68,20 @@ class Card {
 
     if (this.mesh.position.distanceTo(this.targetPosition) < 0.01) {
       this.targetPosition = null;
-      console.log("done");
-
       return;
     }
 
     this.mesh.position.lerp(this.targetPosition, speed);
+  }
+
+  public show() {
+    this.setTargetRotation(1, 0, 0);
+    return this;
+  }
+
+  public hide() {
+    this.setTargetRotation(-1, 0, 0);
+    return this;
   }
 
   public setTargetRotation(x: number, y: number, z: number): void {

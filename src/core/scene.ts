@@ -5,6 +5,7 @@ import { Renderer } from "~/core/renderer";
 import { Deck } from "~/core/deck";
 
 import flipCardAudioSrc from "~/assets/sounds/card-flip.mp3";
+import { Table } from "~/core/table";
 
 class Scene extends THREE.Scene {
   // prettier-ignore
@@ -19,7 +20,7 @@ class Scene extends THREE.Scene {
   private renderer: Renderer;
   private GLTFLoader: GLTFLoader;
 
-  private deck: Deck;
+  private table!: Table;
 
   public constructor() {
     super();
@@ -31,7 +32,6 @@ class Scene extends THREE.Scene {
 
     this.camera.init(this);
     this.renderer.init(this);
-    this.deck = null as any;
   }
 
   public static loadTexture(src: string): Promise<THREE.Texture> {
@@ -46,25 +46,10 @@ class Scene extends THREE.Scene {
     return this.renderer;
   }
 
-  public getDeck(): Deck {
-    return this.deck;
-  }
-
   public createLights() {
     const ambientLight = new THREE.AmbientLight(0xffffff, 2);
+
     this.add(ambientLight);
-  }
-
-  public createTable() {
-    const tableGeometry = new THREE.PlaneGeometry(40, 20);
-    const tableMaterial = new THREE.MeshBasicMaterial({
-      color: Scene.TABLE_COLOR,
-      side: THREE.DoubleSide
-    });
-    const tableMesh = new THREE.Mesh(tableGeometry, tableMaterial);
-
-    tableMesh.rotation.x = -Math.PI / 2;
-    this.add(tableMesh);
   }
 
   public async createPoolTable() {
@@ -79,27 +64,58 @@ class Scene extends THREE.Scene {
     this.add(poolTable.scene);
   }
 
+  public async createSlotMachine() {
+    const slotMachineSrc = "/src/assets/slot/scene.gltf";
+
+    const slotMachine = await this.GLTFLoader.loadAsync(slotMachineSrc);
+
+    slotMachine.scene.position.set(-10, 2, -37);
+    slotMachine.scene.castShadow = true;
+    slotMachine.scene.receiveShadow = true;
+
+    slotMachine.scene.scale.set(10, 10, 10);
+    slotMachine.scene.rotation.y = -Math.PI / 2;
+
+    this.add(slotMachine.scene);
+  }
+
+  public async createPokerTable() {
+    const pokerTableSrc = "/src/assets/poker-table/model.glb";
+
+    const pokerTable = await this.GLTFLoader.loadAsync(pokerTableSrc);
+
+    pokerTable.scene.position.set(-12, -1, -10);
+    pokerTable.scene.castShadow = true;
+    pokerTable.scene.receiveShadow = true;
+
+    pokerTable.scene.scale.set(3, 3, 3);
+    pokerTable.scene.rotation.y = Math.PI;
+
+    const pointLight = new THREE.PointLight(0xffffff, 500, 100);
+
+    pointLight.position.set(-12, 10, -10);
+
+    this.add(pointLight);
+    this.add(pokerTable.scene);
+  }
+
+  /**
+   * This function will run only once
+   * when the scene is loaded.
+   */
   public async load() {
+    this.table = await Table.create();
+
     await this.createPoolTable();
+    await this.createSlotMachine();
+    await this.createPokerTable();
 
     this.createLights();
-    this.createTable();
-
-    this.deck = await Deck.create();
-    this.deck.shuffle();
-
-    for (const [i, card] of this.deck.iter()) {
-      card.getMesh().position.set(12 + i * 0.1, 1, -6);
-
-      card.getMesh().rotation.x = -Math.PI / 2;
-      card.getMesh().rotation.y = Math.PI / 2;
-
-      this.add(card.getMesh());
-    }
+    this.table.init(this, 5);
   }
 
   public update() {
-    this.deck.update();
+    this.table.update();
   }
 
   public render() {

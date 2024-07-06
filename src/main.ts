@@ -14,16 +14,6 @@ window.addEventListener("resize", () => {
   scene.getCamera().updateProjectionMatrix();
 });
 
-let i = 0;
-
-window.addEventListener("click", () => {
-  const audio = new Audio(cardFlipAudio);
-  audio.play();
-
-  scene.getDeck().draw(0 + i / 2, 1 + i * 0.01, 0);
-
-  i = (i + 1) % 52;
-});
 
 window.addEventListener("DOMContentLoaded", async () => {
   let animationID: number | null = null;
