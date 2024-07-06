@@ -13,12 +13,13 @@ class Renderer extends THREE.WebGLRenderer {
   }
 
   public init(scene: Scene) {
-    console.log(Scene.screenResolution);
     this.setSize(Scene.screenResolution.x, Scene.screenResolution.y);
     this.setPixelRatio(window.devicePixelRatio);
 
     this.shadowMap.enabled = true;
     this.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    this.composer.renderer.shadowMap.enabled = true;
 
     document.body.appendChild(this.domElement);
 

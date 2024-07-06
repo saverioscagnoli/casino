@@ -1,8 +1,6 @@
 import { Scene } from "~/core/scene";
 
-import cardFlipAudio from "~/assets/sounds/card-flip.mp3";
-
-const scene = new Scene();
+const scene = Scene.build();
 
 window.addEventListener("resize", () => {
   Scene.screenResolution.set(window.innerWidth, window.innerHeight);
@@ -13,7 +11,6 @@ window.addEventListener("resize", () => {
   scene.getCamera().aspect = Scene.aspectRatio;
   scene.getCamera().updateProjectionMatrix();
 });
-
 
 window.addEventListener("DOMContentLoaded", async () => {
   let animationID: number | null = null;

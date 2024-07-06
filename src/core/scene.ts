@@ -1,37 +1,37 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/Addons.js";
 import { Camera } from "~/core/camera";
 import { Renderer } from "~/core/renderer";
-import { Deck } from "~/core/deck";
-
-import flipCardAudioSrc from "~/assets/sounds/card-flip.mp3";
-import { Table } from "~/core/table";
+import { AssetDatabase } from "./asset-database";
+import { Table } from "~/game/table";
+import { CustomModel } from "~/lib/enums";
 
 class Scene extends THREE.Scene {
+  private static instance: Scene;
+
   // prettier-ignore
   public static screenResolution = new THREE.Vector2(window.innerWidth, window.innerHeight);
   public static aspectRatio = Scene.screenResolution.x / Scene.screenResolution.y;
-  public static TABLE_COLOR = 0x4e9164;
-  public static flipCardAudio = new Audio(flipCardAudioSrc);
 
   private static textureLoader = new THREE.TextureLoader();
 
   private camera: Camera;
   private renderer: Renderer;
-  private GLTFLoader: GLTFLoader;
+  private table: Table;
 
-  private table!: Table;
-
-  public constructor() {
+  private constructor() {
     super();
 
     this.camera = new Camera();
     this.renderer = new Renderer();
+    this.table = new Table();
+  }
 
-    this.GLTFLoader = new GLTFLoader();
+  public static build(): Scene {
+    if (!Scene.instance) {
+      Scene.instance = new Scene();
+    }
 
-    this.camera.init(this);
-    this.renderer.init(this);
+    return Scene.instance;
   }
 
   public static loadTexture(src: string): Promise<THREE.Texture> {
@@ -46,57 +46,126 @@ class Scene extends THREE.Scene {
     return this.renderer;
   }
 
-  public createLights() {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 2);
+  private importDecoration(model: CustomModel, pos: THREE.Vector3, scale: THREE.Vector3) {
+    const db = AssetDatabase.build();
 
-    this.add(ambientLight);
+    const deco = db.getModel(model);
+
+    deco.scene.position.copy(pos);
+    deco.scene.scale.copy(scale);
+
+    deco.scene.castShadow = true;
+    deco.scene.receiveShadow = true;
+
+    deco.scene.traverse(child => {
+      if (child instanceof THREE.Mesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+
+    this.add(deco.scene);
+
+    return deco;
   }
 
-  public async createPoolTable() {
-    const poolTableSrc = "/src/assets/pool-table/scene.gltf";
+  private createLights() {
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+    directionalLight.position.set(0, 20, 0);
 
-    const poolTable = await this.GLTFLoader.loadAsync(poolTableSrc);
+    directionalLight.castShadow = true;
 
-    poolTable.scene.position.set(10, 0, -20);
-    poolTable.scene.castShadow = true;
-    poolTable.scene.receiveShadow = true;
+    this.add(directionalLight);
 
-    this.add(poolTable.scene);
+    // const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+
+    // this.add(ambientLight);
+
+    const spotLight = new THREE.SpotLight(0xffffff, 10, 100, Math.PI, 0.5, 1);
+    spotLight.position.set(0, 10, 0);
+
+    spotLight.castShadow = true;
+
+    this.add(spotLight);
   }
 
-  public async createSlotMachine() {
-    const slotMachineSrc = "/src/assets/slot/scene.gltf";
+  private createFloor() {
+    const db = AssetDatabase.build();
 
-    const slotMachine = await this.GLTFLoader.loadAsync(slotMachineSrc);
+    const texture = db.getTexture("carpet");
 
-    slotMachine.scene.position.set(-10, 2, -37);
-    slotMachine.scene.castShadow = true;
-    slotMachine.scene.receiveShadow = true;
+    const floorGeometry = new THREE.PlaneGeometry(150, 100);
+    const floorMaterial = new THREE.MeshStandardMaterial({
+      color: 0xff0000,
+      side: THREE.DoubleSide
+    });
 
-    slotMachine.scene.scale.set(10, 10, 10);
-    slotMachine.scene.rotation.y = -Math.PI / 2;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
 
-    this.add(slotMachine.scene);
+    texture.repeat.set(5, 5);
+
+    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+
+    floor.position.set(0, -1, 0);
+    floor.rotation.x = Math.PI / 2;
+
+    floor.receiveShadow = true;
+
+    this.add(floor);
   }
 
-  public async createPokerTable() {
-    const pokerTableSrc = "/src/assets/poker-table/model.glb";
+  private createDecorations() {
+    // Pool table behind the blackjack table
+    this.importDecoration(
+      CustomModel.PoolTable,
+      new THREE.Vector3(10, 0, -20),
+      new THREE.Vector3(1, 1, 1)
+    );
 
-    const pokerTable = await this.GLTFLoader.loadAsync(pokerTableSrc);
+    // Pinball in the back
+    this.importDecoration(
+      CustomModel.Pinball,
+      new THREE.Vector3(25, 0, -20),
+      new THREE.Vector3(3, 3, 3)
+    );
 
-    pokerTable.scene.position.set(-12, -1, -10);
-    pokerTable.scene.castShadow = true;
-    pokerTable.scene.receiveShadow = true;
+    const arcadeMachine = this.importDecoration(
+      CustomModel.ArcadeMachine,
+      new THREE.Vector3(-18, 0, -25),
+      new THREE.Vector3(1, 1, 1)
+    );
 
-    pokerTable.scene.scale.set(3, 3, 3);
-    pokerTable.scene.rotation.y = Math.PI;
+    arcadeMachine.scene.rotateY(Math.PI / 2);
 
-    const pointLight = new THREE.PointLight(0xffffff, 500, 100);
+    const clones = [...Array(5)].map(() => arcadeMachine.scene.clone());
 
-    pointLight.position.set(-12, 10, -10);
+    for (const [i, clone] of clones.entries()) {
+      clone.position.set(-3 - i * 3, 0, -25);
 
-    this.add(pointLight);
-    this.add(pokerTable.scene);
+      this.add(clone);
+    }
+
+    const airHockey = this.importDecoration(
+      CustomModel.AirHockey,
+      new THREE.Vector3(-30, 0, -25),
+      new THREE.Vector3(1, 1, 1)
+    );
+
+    airHockey.scene.rotateY(-Math.PI / 2);
+
+    const airHockeyClone = airHockey.scene.clone();
+    airHockeyClone.position.set(-30, 0, -18);
+
+    this.add(airHockeyClone);
+
+    const jukebox = this.importDecoration(
+      CustomModel.Jukebox,
+      new THREE.Vector3(30, 1, -13),
+      new THREE.Vector3(3, 3, 3)
+    );
+
+    jukebox.scene.rotateY(Math.PI / 2);
   }
 
   /**
@@ -104,17 +173,43 @@ class Scene extends THREE.Scene {
    * when the scene is loaded.
    */
   public async load() {
-    this.table = await Table.create();
+    // This should be the first time the AssetDatabase is being used
+    const db = AssetDatabase.build();
 
-    await this.createPoolTable();
-    await this.createSlotMachine();
-    await this.createPokerTable();
+    // Load all the models and textures
+    await db.fetchCards();
+    await db.fetchTextures();
+    await db.fetchModels();
 
-    this.createLights();
+    // Initialize the camera and renderer
+    this.camera.init(this, this.renderer);
+    this.renderer.init(this);
+
+    // Create the table
     this.table.init(this, 5);
+
+    // Create the floor
+    this.createFloor();
+
+    // Create the decorations inside the scene
+    this.createDecorations();
+
+    // Create the lights
+    this.createLights();
+
+    const cubeGeometry = new THREE.BoxGeometry(3, 3, 3);
+    const cubeMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+    const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+
+    cube.castShadow = true;
+
+    cube.position.set(-3, 4, -20);
+
+    this.add(cube);
   }
 
   public update() {
+    this.camera.update();
     this.table.update();
   }
 
@@ -124,3 +219,50 @@ class Scene extends THREE.Scene {
 }
 
 export { Scene };
+
+// public async createPoolTable() {
+//   const poolTableSrc = "/src/assets/pool-table/scene.gltf";
+
+//   const poolTable = await this.GLTFLoader.loadAsync(poolTableSrc);
+
+//   poolTable.scene.position.set(10, 0, -20);
+//   poolTable.scene.castShadow = true;
+//   poolTable.scene.receiveShadow = true;
+
+//   this.add(poolTable.scene);
+// }
+
+// public async createSlotMachine() {
+//   const slotMachineSrc = "/src/assets/slot/scene.gltf";
+
+//   const slotMachine = await this.GLTFLoader.loadAsync(slotMachineSrc);
+
+//   slotMachine.scene.position.set(-10, 2, -37);
+//   slotMachine.scene.castShadow = true;
+//   slotMachine.scene.receiveShadow = true;
+
+//   slotMachine.scene.scale.set(10, 10, 10);
+//   slotMachine.scene.rotation.y = -Math.PI / 2;
+
+//   this.add(slotMachine.scene);
+// }
+
+// public async createPokerTable() {
+//   const pokerTableSrc = "/src/assets/poker-table/model.glb";
+
+//   const pokerTable = await this.GLTFLoader.loadAsync(pokerTableSrc);
+
+//   pokerTable.scene.position.set(-12, -1, -10);
+//   pokerTable.scene.castShadow = true;
+//   pokerTable.scene.receiveShadow = true;
+
+//   pokerTable.scene.scale.set(3, 3, 3);
+//   pokerTable.scene.rotation.y = Math.PI;
+
+//   const pointLight = new THREE.PointLight(0xffffff, 500, 100);
+
+//   pointLight.position.set(-12, 10, -10);
+
+//   this.add(pointLight);
+//   this.add(pokerTable.scene);
+// }

@@ -1,0 +1,34 @@
+enum CardSuit {
+  Hearts = "H",
+  Diamonds = "D",
+  Spades = "S",
+  Clubs = "C"
+}
+
+enum CardLabel {
+  Ace = "A",
+  Two = "2",
+  Three = "3",
+  Four = "4",
+  Five = "5",
+  Six = "6",
+  Seven = "7",
+  Eight = "8",
+  Nine = "9",
+  Ten = "10",
+  Jack = "J",
+  Queen = "Q",
+  King = "K"
+}
+
+enum CustomModel {
+  PokerTable = "poker-table",
+  SlotMachine = "slot-machine",
+  PoolTable = "pool-table",
+  Pinball = "pinball",
+  ArcadeMachine = "arcade-machine",
+  AirHockey = "air-hockey",
+  Jukebox = "jukebox",
+}
+
+export { CardSuit, CardLabel, CustomModel };
