@@ -43,12 +43,12 @@ const App = () => {
 
         case TextOpcode.ChatMessage: {
           let data = parsed.data as ChatMessagePayload;
-          setMessages([...messages, data]);
+          setMessages((m) => [...m, data]);
           break;
         }
       }
     });
-  }, [ws, setID, messages]);
+  }, [ws, setID]);
 
   return (
     <div>
@@ -56,7 +56,7 @@ const App = () => {
       <button
         onClick={() => {
           let message: ChatMessagePayload = {
-            id,
+            authorID: id,
             content: msg,
           };
 
@@ -67,16 +67,16 @@ const App = () => {
             })
           );
 
-          setMessages([...messages, message]);
+          setMessages((m) => [...m, message]);
         }}
       >
         Send
       </button>
 
       <div>
-        {messages.map(({ id, content }) => (
-          <div>
-            <p>{id}:</p>
+        {messages.map(({ authorID, content }, index) => (
+          <div key={index.toString()}>
+            <p>{authorID}:</p>
             <p>{content}</p>
           </div>
         ))}

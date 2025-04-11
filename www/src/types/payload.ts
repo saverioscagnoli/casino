@@ -27,7 +27,7 @@ type ChatMessagePayload = {
   /**
    * The id of the sender
    */
-  id: string;
+  authorID: string;
 
   /**
    * The text content of the message
