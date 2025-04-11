@@ -86,6 +86,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
+    console::clear();
     let args = Args::parse();
 
     traccia::init_with_config(traccia::Config {

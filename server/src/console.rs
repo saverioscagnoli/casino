@@ -15,19 +15,27 @@ enum ConsoleCommand {
     Help,
     /// Displays how many users are connected
     ListUsers,
+    /// Clears the console
+    Clear,
     /// Sends a chat message to all clients.
     Broadcast(String),
     /// Fallback
     Unknown(String),
 }
 
-fn parse_command(input: &str) -> ConsoleCommand {
-    let input = input.trim();
+/// Clears the console
+pub fn clear() {
+    print!("\x1B[2J");
+}
 
-    match input {
+fn parse_command(input: &str) -> ConsoleCommand {
+    let input = input.trim().to_lowercase();
+
+    match input.as_str() {
         "exit" => ConsoleCommand::Exit,
         "help" => ConsoleCommand::Help,
         "list" => ConsoleCommand::ListUsers,
+        "clear" => ConsoleCommand::Clear,
         s if s.starts_with("broadcast ") => {
             let message = s["broadcast ".len()..].trim().to_string();
             if !message.is_empty() {
@@ -81,6 +89,10 @@ pub async fn console_task(shutdown_tx: broadcast::Sender<()>) {
                         info!("Connected users: {}", users);
                     }
 
+                    ConsoleCommand::Clear => {
+                        clear();
+                    }
+
                     ConsoleCommand::Broadcast(message) => {
                         info!("Broadcasting message: {}", message);
                         // Create a system message
@@ -93,7 +105,7 @@ pub async fn console_task(shutdown_tx: broadcast::Sender<()>) {
                             error!("Error broadcasting message: {}", e);
                         }
                     }
-                    
+
                     ConsoleCommand::Unknown(cmd) => {
                         println!(
                             "Unknown command: '{}'. Type 'help' for available commands.",

@@ -1,9 +1,6 @@
-use crate::{
-    error::Error,
-    json::{Hello, TextPayload},
-};
+use crate::{error::Error, json::TextPayload};
 use futures_util::{SinkExt, stream::SplitSink};
-use mini_moka::sync::Cache;
+use mini_moka::sync::{Cache, ConcurrentCacheExt};
 use serde::Serialize;
 use std::{
     ops::Deref,
@@ -51,6 +48,7 @@ type ClientMap = Cache<String, Ws>;
 static CLIENT_MAP: LazyLock<ClientMap> = LazyLock::new(|| Cache::new(100));
 
 pub fn client_count() -> u64 {
+    CLIENT_MAP.sync();
     CLIENT_MAP.entry_count()
 }
 
