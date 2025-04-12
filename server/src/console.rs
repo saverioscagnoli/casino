@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use crate::{
+    consts,
     json::{self, TextPayload, broadcast},
     ws,
 };
@@ -118,7 +119,7 @@ pub async fn console_task(shutdown_tx: broadcast::Sender<()>) {
                         info!("Broadcasting message: {}", message);
                         // Create a system message
                         let payload = TextPayload::ChatMessage(json::ChatMessage {
-                            author_id: "system".to_string(),
+                            author: consts::SYS_USER.clone(),
                             content: message,
                         });
 

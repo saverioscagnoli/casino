@@ -15,10 +15,14 @@ use tokio_tungstenite::{accept_async, tungstenite::Message};
 use traccia::{Colorize, Hook, LogLevel, Style, TargetId, error, info, warn};
 use ws::Ws;
 
+mod cards;
 mod console;
+mod database;
 mod error;
 mod json;
+mod math;
 mod ws;
+mod consts;
 
 struct CustomFormatter;
 
@@ -228,7 +232,7 @@ fn broadcast_handler(
                     if let Ok(payload) = result {
                         // Only forward messages that aren't from this client
                         if let TextPayload::ChatMessage(ref msg) = payload {
-                            if msg.author_id != id {
+                            if msg.author.id != id {
                                 if let Err(e) = ws.send_json(&payload).await {
                                     error!("{}", e);
                                     break;

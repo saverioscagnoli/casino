@@ -1,4 +1,8 @@
-use crate::{error::Error, json::TextPayload};
+use crate::{
+    database::User,
+    error::Error,
+    json::{Hello, TextPayload},
+};
 use futures_util::{SinkExt, stream::SplitSink};
 use mini_moka::sync::{Cache, ConcurrentCacheExt};
 use serde::Serialize;
@@ -24,7 +28,11 @@ impl Deref for Ws {
 
 impl Ws {
     pub async fn send_hello(&self, id: String) -> Result<(), Error> {
-        let payload = TextPayload::hello(id);
+        let payload = TextPayload::Hello(User {
+            id,
+            name: "User".to_string(),
+            is_system: false,
+        });
 
         self.send_json(&payload).await?;
 

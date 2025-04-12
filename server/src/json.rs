@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_repr::Deserialize_repr;
 use tokio::sync::broadcast;
 
+use crate::database::User;
+
 #[derive(Deserialize_repr)]
 #[repr(u8)]
 pub enum TextOpcode {
@@ -13,13 +15,12 @@ pub enum TextOpcode {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Hello {
-    pub id: String,
+    pub user: User,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
-    #[serde(rename = "authorID")]
-    pub author_id: String,
+    pub author: User,
     pub content: String,
 }
 
@@ -27,15 +28,9 @@ pub struct ChatMessage {
 #[serde(tag = "opcode", content = "data")]
 pub enum TextPayload {
     #[serde(rename = "0")]
-    Hello(Hello),
+    Hello(User),
     #[serde(rename = "1")]
     ChatMessage(ChatMessage),
-}
-
-impl TextPayload {
-    pub fn hello(id: String) -> TextPayload {
-        Self::Hello(Hello { id })
-    }
 }
 
 // Channel for broadcasting messages
