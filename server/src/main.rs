@@ -12,7 +12,7 @@ use tokio::{
     sync::{Mutex, broadcast},
 };
 use tokio_tungstenite::{accept_async, tungstenite::Message};
-use traccia::{Colorize, LogLevel, Style, error, info, warn};
+use traccia::{Colorize, Hook, LogLevel, Style, TargetId, error, info, warn};
 use ws::Ws;
 
 mod console;
@@ -74,11 +74,9 @@ struct Args {
     /// The address of the websocket server
     #[arg(short, long, default_value = "127.0.0.1")]
     addr: String,
-
     /// The port to listen on
     #[arg(short, long)]
     port: u16,
-
     /// the log level to use
     #[arg(short, long, default_value_t = default_level())]
     level: LogLevel,
@@ -87,7 +85,24 @@ struct Args {
 #[tokio::main]
 async fn main() {
     console::clear();
+    console::print_prompt();
+
     let args = Args::parse();
+
+    traccia::set_hook(Hook::BeforeLog(Box::new(|_, target| {
+        if let TargetId::Console(_) = target {
+            // Clear the line before printing a log
+            console::clear_line();
+        }
+    })));
+
+    traccia::set_hook(Hook::AfterLog(Box::new(|_, target| {
+        if let TargetId::Console(_) = target {
+            // Print a new line after a log appears
+            // After any log, restore the prompt
+            console::print_prompt();
+        }
+    })));
 
     traccia::init_with_config(traccia::Config {
         level: args.level,
@@ -237,7 +252,7 @@ async fn handle_client_messages(
     read: &mut futures_util::stream::SplitStream<
         tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
     >,
-    id: &str,
+    _id: &str,
 ) {
     while let Some(Ok(message)) = read.next().await {
         match message {

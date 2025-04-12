@@ -1059,9 +1059,9 @@ dependencies = [
 
 [[package]]
 name = "traccia"
-version = "2.1.1"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd79b8f1a9d2f1b16efcc195d21297da0b200f07d166ce9e194e267a0f478d48"
+checksum = "d2db481754fec1830e8a7759d6b3fb341162108254f36891e97235be63b0fc73"
 dependencies = [
  "clap",
 ]

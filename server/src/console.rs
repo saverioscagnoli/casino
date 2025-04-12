@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use crate::{
     json::{self, TextPayload, broadcast},
     ws,
@@ -25,7 +27,27 @@ enum ConsoleCommand {
 
 /// Clears the console
 pub fn clear() {
-    print!("\x1B[2J");
+    // Clear screen and move cursor to top-left position
+    print!("\x1B[2J\x1B[H");
+}
+
+/// Prints the prompt
+/// and flushes stdout
+pub fn print_prompt() {
+    print!("> ");
+
+    if let Err(e) = std::io::stdout().flush() {
+        error!("Failed to flush stdout: {}", e);
+    }
+}
+
+/// Useful for clearing lines before printing logs
+pub fn clear_line() {
+    print!("\r\x1B[K"); // \r moves cursor to start of line, \x1B[K clears to end of line    print!("\r\x1B[K");
+
+    if let Err(e) = std::io::stdout().flush() {
+        error!("Failed to flush stdout: {}", e);
+    }
 }
 
 fn parse_command(input: &str) -> ConsoleCommand {
@@ -55,11 +77,6 @@ pub async fn console_task(shutdown_tx: broadcast::Sender<()>) {
     let mut stdin = BufReader::new(tokio::io::stdin());
 
     loop {
-        // Display the prompt (> )
-        if let Err(e) = stdout.write_all(b"> ").await {
-            error!("Failed to write prompt: {}", e);
-        }
-
         if let Err(e) = stdout.flush().await {
             error!("Failed to flush stdout: {}", e);
         }
@@ -82,6 +99,9 @@ pub async fn console_task(shutdown_tx: broadcast::Sender<()>) {
                         println!("  exit        - Shut down the server");
                         println!("  list        - List connected users");
                         println!("  broadcast <message> - Send a message to all connected clients");
+                        println!("  clear       - Clear the console");
+
+                        print_prompt();
                     }
 
                     ConsoleCommand::ListUsers => {
@@ -91,6 +111,7 @@ pub async fn console_task(shutdown_tx: broadcast::Sender<()>) {
 
                     ConsoleCommand::Clear => {
                         clear();
+                        print_prompt();
                     }
 
                     ConsoleCommand::Broadcast(message) => {
@@ -111,6 +132,8 @@ pub async fn console_task(shutdown_tx: broadcast::Sender<()>) {
                             "Unknown command: '{}'. Type 'help' for available commands.",
                             cmd
                         );
+
+                        print_prompt();
                     }
                 }
             }
