@@ -1,80 +1,133 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-function useSocket(url: string) {
-  const socket = useMemo(() => {
-    let ws = new WebSocket(url);
-    ws.binaryType = "arraybuffer";
-    return ws;
-  }, []);
+type ReadyState = "Connecting" | "Open" | "Closing" | "Closed";
 
-  const send = <T>(data: T | string | ArrayBuffer) => {
-    if (socket.readyState !== WebSocket.OPEN) {
-      console.error("Socket is not open");
-      return;
-    }
+const StateMap: { [key: number]: ReadyState } = {
+  [WebSocket.CONNECTING]: "Connecting",
+  [WebSocket.OPEN]: "Open",
+  [WebSocket.CLOSING]: "Closing",
+  [WebSocket.CLOSED]: "Closed",
+};
 
-    if (typeof data === "string") {
-      socket.send(data);
-    } else if (data instanceof ArrayBuffer) {
-      socket.send(data);
-    } else {
-      socket.send(JSON.stringify(data));
-    }
-  };
+type UseSocketReturn = {
+  send<T>(data: T): void;
+  state: ReadyState;
+  lastMessage: MessageEvent | null;
+  sendError: Error | null;
+};
 
-  const close = () => {
-    if (socket.readyState === WebSocket.OPEN) {
-      socket.close();
-    }
-  };
+type WebSocketSendData = string | ArrayBufferLike | Blob | ArrayBufferView;
 
-  const onOpen = (callback: () => void) => {
-    useEffect(() => {
-      let ctrl = new AbortController();
-      let { signal } = ctrl;
+function useSocket(
+  url: string,
+  protocols?: string | string[]
+): UseSocketReturn {
+  const [lastMessage, setLastMessage] = useState<MessageEvent | null>(null);
+  const [state, setState] = useState<ReadyState>(StateMap[WebSocket.CLOSED]);
+  const [sendError, setSendError] = useState<Error | null>(null);
 
-      socket.addEventListener("open", callback, { signal });
+  const ws = useRef<WebSocket | null>(null);
 
-      return () => {
-        ctrl.abort();
-      };
-    }, []);
-  };
+  const protocolsRef = useRef<string | string[] | undefined>(protocols);
 
-  const onClose = (callback: () => void) => {
-    useEffect(() => {
-      let ctrl = new AbortController();
-      let { signal } = ctrl;
+  useEffect(() => {
+    protocolsRef.current = protocols;
+  }, [protocols]);
 
-      socket.addEventListener("close", callback, { signal });
+  useEffect(() => {
+    let socket = new WebSocket(url, protocolsRef.current);
 
-      return () => {
-        ctrl.abort();
-      };
-    }, []);
-  };
+    ws.current = socket;
+    setState(StateMap[socket.readyState]);
 
-  const onMessage = (callback: (event: MessageEvent) => void) => {
-    useEffect(() => {
-      let ctrl = new AbortController();
-      let { signal } = ctrl;
+    let controller = new AbortController();
+    let { signal } = controller;
 
-      socket.addEventListener("message", callback, { signal });
+    socket.addEventListener(
+      "open",
+      () => {
+        setState(StateMap[socket.readyState]);
+      },
+      { signal }
+    );
 
-      return () => {
-        ctrl.abort();
-      };
-    }, []);
-  };
+    socket.addEventListener(
+      "close",
+      () => {
+        setState(StateMap[socket.readyState]);
+      },
+      { signal }
+    );
+
+    socket.addEventListener(
+      "message",
+      (event) => {
+        setLastMessage(event);
+      },
+      { signal }
+    );
+
+    socket.addEventListener(
+      "error",
+      (event) => {
+        console.error("WebSocket error:", event);
+      },
+      { signal }
+    );
+
+    return () => {
+      controller.abort();
+
+      if (
+        socket.readyState === WebSocket.OPEN ||
+        socket.readyState === WebSocket.CONNECTING
+      ) {
+        socket.close(1000, "Hook unmounting");
+      }
+    };
+  }, [url]);
+
+  const send = useCallback(
+    <T>(data: T) => {
+      let socket = ws.current;
+
+      if (socket?.readyState !== WebSocket.OPEN) {
+        console.warn("Socket is not open. Cannot send message.", {
+          url,
+          state: StateMap[socket?.readyState ?? WebSocket.CLOSED],
+        });
+        return;
+      }
+
+      try {
+        // Handle the data based on its type
+        if (
+          typeof data === "string" ||
+          data instanceof ArrayBuffer ||
+          data instanceof Blob ||
+          ArrayBuffer.isView(data)
+        ) {
+          // These types can be sent directly to WebSocket
+          socket.send(data as WebSocketSendData);
+        } else {
+          // For other types, convert to JSON string
+          socket.send(JSON.stringify(data));
+        }
+      } catch (error) {
+        setSendError(error as Error);
+        console.error("Error sending message:", error);
+      }
+    },
+    [url]
+  );
 
   return {
-    socket,
     send,
-    close,
-    onOpen,
-    onClose,
-    onMessage,
+    state,
+    lastMessage,
+    sendError,
   };
 }
 
 export { useSocket };
+export type { UseSocketReturn, ReadyState };

@@ -1,38 +1,15 @@
-import { TextOpcode } from "./opcdode";
+enum Opcode {
+  Hello = 0,
+}
 
-/**
- * Generic type used to type any variable
- * before parsing the actual payload
- */
-type UnknownTextPayload = {
-  /**
-   * Opcode of the json message
-   */
-  opcode: TextOpcode;
-
-  /**
-   * Actual underlying data
-   */
-  data: unknown;
+type Payload<T> = {
+  op: Opcode;
+  d: T;
 };
 
-type HelloPayload = {
-  /**
-   * The id that the backend is assigning to the client.
-   */
-  id: string;
+type Hello = {
+  username: string;
 };
 
-type ChatMessagePayload = {
-  /**
-   * The id of the sender
-   */
-  authorID: string;
-
-  /**
-   * The text content of the message
-   */
-  content: string;
-};
-
-export type { UnknownTextPayload, HelloPayload, ChatMessagePayload };
+export { Opcode };
+export type { Payload, Hello };

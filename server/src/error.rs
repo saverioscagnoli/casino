@@ -1,32 +1,34 @@
 use std::fmt::Display;
 
-use tokio_tungstenite::tungstenite;
+use fastwebsockets::WebSocketError;
 
 #[derive(Debug)]
 pub enum Error {
-    WebSocket(tungstenite::Error),
-    Serialization(serde_json::Error),
+    AddressParsing(String),
+    TokioIo(tokio::io::Error),
+    WebSocket(fastwebsockets::WebSocketError),
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::WebSocket(err) => write!(f, "WebSocket error: {}", err),
-            Error::Serialization(err) => write!(f, "Serde error: {}", err),
+            Error::AddressParsing(addr) => write!(f, "Failed to parse socket address: {}", addr),
+            Error::TokioIo(err) => write!(f, "Tokio IO error: {}", err),
+            Error::WebSocket(err) => write!(f, "Websocket error: {}", err),
         }
     }
 }
 
 impl std::error::Error for Error {}
 
-impl From<tungstenite::Error> for Error {
-    fn from(err: tungstenite::Error) -> Self {
-        Self::WebSocket(err)
+impl From<tokio::io::Error> for Error {
+    fn from(err: tokio::io::Error) -> Self {
+        Error::TokioIo(err)
     }
 }
 
-impl From<serde_json::Error> for Error {
-    fn from(err: serde_json::Error) -> Self {
-        Self::Serialization(err)
+impl From<WebSocketError> for Error {
+    fn from(err: WebSocketError) -> Self {
+        Error::WebSocket(err)
     }
 }
