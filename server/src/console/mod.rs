@@ -75,7 +75,7 @@ impl Console {
             tokio::pin!(exit);
 
             // Give exit priority, otherwise it will read the line
-            // one last time, making it hang
+            // one last time, making it han
             match future::select(exit, read_line).await {
                 Either::Right((res, _)) => match res {
                     Ok(_) => {
