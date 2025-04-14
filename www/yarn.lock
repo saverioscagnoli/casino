@@ -703,6 +703,11 @@
     "@typescript-eslint/types" "8.29.1"
     eslint-visitor-keys "^4.2.0"
 
+"@util-hooks/use-event@^1.0.8":
+  version "1.0.8"
+  resolved "https://registry.yarnpkg.com/@util-hooks/use-event/-/use-event-1.0.8.tgz#e8fc073d9909095f4ebb9586ab789b5f859ee44c"
+  integrity sha512-TgNy2ghLYiHgwKm062/pLOcegmilz2yhd4OshQGc4JMLUov6Tbmdyb1lXa4FQxoYkK9L80fysSWC07zZbLgTNQ==
+
 "@vitejs/plugin-react@^4.3.4":
   version "4.3.4"
   resolved "https://registry.yarnpkg.com/@vitejs/plugin-react/-/plugin-react-4.3.4.tgz#c64be10b54c4640135a5b28a2432330e88ad7c20"

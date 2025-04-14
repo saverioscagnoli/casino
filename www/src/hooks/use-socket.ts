@@ -36,6 +36,7 @@ function useSocket(
 
   useEffect(() => {
     let socket = new WebSocket(url, protocolsRef.current);
+    socket.binaryType = "arraybuffer";
 
     ws.current = socket;
     setState(StateMap[socket.readyState]);

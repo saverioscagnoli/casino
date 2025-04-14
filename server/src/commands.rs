@@ -1,15 +1,18 @@
+use crate::{
+    console::{self, CommandHandler},
+    socket,
+};
 use async_trait::async_trait;
 use std::any::Any;
 use strum_macros::EnumIter;
-use tokio::io::AsyncWriteExt;
-use traccia::error;
-
-use crate::console::{self, CommandHandler};
+use tokio::{io::AsyncWriteExt, sync::broadcast};
+use traccia::{error, info};
 
 #[derive(Debug, Clone, Copy, EnumIter)]
 pub enum Command {
     Help,
     Exit,
+    Count,
     Clear,
 }
 
@@ -20,7 +23,10 @@ impl Command {
         }
     }
 
-    fn exit() {}
+    fn count() {
+        let count = socket::client_count();
+        info!("Clients connected: {}", count);
+    }
 
     async fn clear(mut stdout: tokio::io::Stdout) {
         if let Err(e) = stdout.write_all(b"\x1b[1;1H\x1b[2J").await {
@@ -39,6 +45,7 @@ impl console::CommandHandler for Command {
         match self {
             Command::Help => "help",
             Command::Exit => "exit",
+            Command::Count => "count",
             Command::Clear => "clear",
         }
     }
@@ -47,6 +54,7 @@ impl console::CommandHandler for Command {
         match self {
             Command::Help => "Displays information of each command",
             Command::Exit => "Stops the server entirely",
+            Command::Count => "Returns the number of clients connected",
             Command::Clear => "Clears the console",
         }
     }
@@ -63,7 +71,14 @@ impl console::CommandHandler for Command {
                     Command::help(commands.clone());
                 }
             }
-            Command::Exit => Command::exit(),
+            Command::Count => Command::count(),
+            Command::Exit => {
+                if let Some(exit_tx) = context.unwrap().downcast_ref::<broadcast::Sender<()>>() {
+                    if let Err(e) = exit_tx.send(()) {
+                        error!("Failed to send shutdown signal: {}", e);
+                    }
+                }
+            }
             Command::Clear => Command::clear(stdout).await,
         }
 
