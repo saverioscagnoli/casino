@@ -1,0 +1,12 @@
+[package]
+name = "casino"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+members = ["server","console"]
+default-members = ["server"]
+
+
+
+[dependencies]
