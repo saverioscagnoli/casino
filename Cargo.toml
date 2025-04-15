@@ -3,10 +3,11 @@ name = "casino"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+path = "server"
+
 [workspace]
-members = ["server","console"]
+members = ["server", "console"]
 default-members = ["server"]
-
-
 
 [dependencies]
