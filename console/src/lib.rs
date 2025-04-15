@@ -33,6 +33,7 @@ use tokio::io::AsyncReadExt;
 /// ```
 pub struct Console {
     prompt: Option<String>,
+    prompt_on_start: bool,
     exit_signal: char,
     commands: Vec<Box<dyn Command>>,
     default_callback: Option<BoxAsyncFn>,
@@ -47,6 +48,7 @@ impl Console {
     pub fn new() -> Self {
         Self {
             prompt: None,
+            prompt_on_start: true,
             exit_signal: '\x03',
             commands: Vec::new(),
             default_callback: None,
@@ -68,6 +70,11 @@ impl Console {
     /// ```
     pub fn prompt<S: Into<String>>(mut self, prompt: S) -> Self {
         self.prompt = Some(prompt.into());
+        self
+    }
+
+    pub fn prompt_on_start(mut self, value: bool) -> Self {
+        self.prompt_on_start = value;
         self
     }
 
@@ -210,8 +217,10 @@ impl Console {
 
         let _mode_guard = RawModeGuard::new()?;
 
-        if let Some(ref prompt) = self.prompt {
-            stdout.execute(Print(prompt)).await?;
+        if self.prompt_on_start {
+            if let Some(ref prompt) = self.prompt {
+                stdout.execute(Print(prompt)).await?;
+            }
         }
 
         loop {
