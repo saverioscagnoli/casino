@@ -1,76 +1,50 @@
-use std::collections::HashMap;
-use std::io::Write;
-use std::net::{IpAddr, SocketAddr};
-use std::str::FromStr;
-
-use ::console::op::PrintLn;
-use ::console::{CommandExecutor, Console};
-use bytes::Bytes;
+use ::console::{CommandExecutor, Console, op::PrintLn};
 use clap::Parser;
-use console::{AddRelayComand, ClearCommand, ListRelaysCommand};
-use http_body_util::{BodyExt, Empty, Full, combinators::BoxBody};
-use hyper::body::Frame;
-use hyper::server::conn::http1;
-use hyper::service::service_fn;
-use hyper::{Method, Request, Response, StatusCode, body::Body};
-use hyper_util::rt::TokioIo;
+use console::{ClearCommand, RelayComand};
+use http::{ApiHandler, App, Request, Response, async_trait};
+use hyper::{Method, StatusCode};
 use mini_moka::sync::Cache;
 use nanoid::nanoid;
-use tokio::net::TcpListener;
-use traccia::{Colorize, Hook, LogLevel, TargetId, error, info};
+use payload::{LoginRequestBody, LoginResponseBody};
+use std::{io::Write, net::SocketAddr, sync::LazyLock};
+use traccia::{Hook, LogLevel, TargetId, error, fatal, info};
 
 mod console;
+mod payload;
 
-/// This is our service handler. It receives a Request, routes on its
-/// path, and returns a Future of a Response.
-async fn handler(
-    req: Request<hyper::body::Incoming>,
-) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
-    let method = req.method();
-    let path = req.uri().path();
-    let segments = path
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>();
-    let slice = segments.as_slice();
+struct ServerHandler;
 
-    match (method, slice) {
-        (&Method::GET, ["create_room"]) => {
-            // Send a request to the relay servers
-            // And create a room on one of them
-            let room_id = nanoid!();
+pub static RELAYS: LazyLock<Cache<SocketAddr, String>> = LazyLock::new(|| Cache::new(100));
 
-            info!("Creating room with id: {}", room_id);
+#[async_trait]
+impl ApiHandler for ServerHandler {
+    async fn incoming(&self, req: Request) -> Result<Response, hyper::Error> {
+        let method = req.method();
+        let segments = req.segments();
 
-            Ok(Response::new(full(room_id)))
-        }
+        match (method, &segments[..]) {
+            (&Method::POST, ["session"]) => {
+                let body = req.json::<LoginRequestBody>().await.unwrap();
 
-        (&Method::GET, ["room", id]) => {
-            info!("Fetching room with id: {}", id);
+                let id = nanoid!();
+                let username = body.username;
 
-            Ok(Response::new(full(format!("Room ID: {}", id))))
-        }
+                info!("New login: {}", username);
 
-        _ => {
-            let mut not_found = Response::new(empty());
+                let res = Response::empty()
+                    .status(StatusCode::CREATED)
+                    .body(LoginResponseBody { id, username })
+                    .unwrap();
 
-            *not_found.status_mut() = StatusCode::NOT_FOUND;
+                Ok(res)
+            }
 
-            Ok(not_found)
+            // Cors
+            (&Method::OPTIONS, _) => Ok(Response::empty().status(StatusCode::OK)),
+
+            _ => Ok(Response::empty().status(StatusCode::NOT_FOUND)),
         }
     }
-}
-
-fn empty() -> BoxBody<Bytes, hyper::Error> {
-    Empty::<Bytes>::new()
-        .map_err(|never| match never {})
-        .boxed()
-}
-
-fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
-    Full::new(chunk.into())
-        .map_err(|never| match never {})
-        .boxed()
 }
 
 #[derive(Debug, Parser)]
@@ -93,10 +67,7 @@ fn default_level() -> LogLevel {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let args = Args::parse();
-
+fn setup_logger() {
     traccia::init_with_config(traccia::Config {
         level: default_level(),
         ..Default::default()
@@ -104,59 +75,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     traccia::set_hook(Hook::BeforeLog(Box::new(|_, target| {
         if let TargetId::Console(_) = target {
-            print!("\x1B[2K\x1B[G");
+            // Clear the current line and move the cursor to the beginning
+            print!("\x1B[2K\x1B[0G");
+
+            if let Err(e) = std::io::stdout().flush() {
+                error!("Failed to flush stdout: {}", e);
+            }
         }
     })));
 
     traccia::set_hook(Hook::AfterLog(Box::new(|_, target| {
         if let TargetId::Console(_) = target {
+            // Print the prompt again
             print!("> ");
-            std::io::stdout().flush().unwrap();
+
+            if let Err(e) = std::io::stdout().flush() {
+                error!("Failed to flush stdout: {}", e);
+            }
         }
     })));
+}
 
-    let ip = IpAddr::from_str(&args.addr).expect("Failed to parse id address");
-    let addr = SocketAddr::new(ip, args.port);
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    setup_logger();
 
-    let listener = TcpListener::bind(addr).await?;
+    let args = Args::parse();
 
-    let relays = Cache::new(120);
+    let addr_str = format!("{}:{}", args.addr, args.port);
 
-    let console = Console::new()
-        .prompt("> ")
-        .prompt_on_start(false)
-        .case_sensitive(false)
-        .command(ClearCommand)
-        .command(AddRelayComand(relays.clone()))
-        .command(ListRelaysCommand(relays.clone()))
-        .default_callback(|mut stdout, bad| async move {
-            stdout
-                .execute(PrintLn(format!("Unknown command '{}'", bad)))
-                .await?;
+    let addr: SocketAddr = match addr_str.parse() {
+        Ok(addr) => addr,
+        Err(_) => {
+            fatal!("Invalid address: {}", addr_str);
+            return Ok(());
+        }
+    };
 
-            Ok(())
-        });
-
-    let console_handle = tokio::spawn(console.run());
-
-    info!(
-        "Listening on {}",
-        format!("http://{}", addr).color(traccia::Color::Cyan)
+    _ = tokio::spawn(
+        Console::new()
+            .case_sensitive(false)
+            .prompt("> ")
+            .prompt_on_start(false)
+            .command(ClearCommand)
+            .command(RelayComand)
+            .default_callback(|mut stdout, bad| async move {
+                stdout
+                    .execute(PrintLn(format!("Unknown command '{}'.", bad)))
+                    .await
+            })
+            .run(),
     );
 
-    loop {
-        let (stream, _) = listener.accept().await?;
-        let io = TokioIo::new(stream);
+    if let Ok(app) = App::new(addr).await {
+        info!("Server listening on {}", addr);
 
-        tokio::spawn(async move {
-            if let Err(err) = http1::Builder::new()
-                .serve_connection(io, service_fn(handler))
-                .await
-            {
-                error!("Error serving connection: {:?}", err);
-            }
-        });
+        if let Err(e) = app.run(ServerHandler).await {
+            fatal!("There was an error during the main app loop: {}", e);
+        }
     }
 
-    console_handle.await;
+    Ok(())
 }

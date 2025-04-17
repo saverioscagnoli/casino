@@ -7,7 +7,7 @@ edition = "2024"
 path = "server"
 
 [workspace]
-members = ["server", "console"]
+members = ["server", "console", "http"]
 default-members = ["server"]
 
 [dependencies]
