@@ -1,12 +1,18 @@
-use std::net::SocketAddr;
-
-use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::post};
+use axum::{
+    Router,
+    extract::{Path, State},
+    routing::{get, post},
+};
 use clap::Parser;
+use commands::{ClearCommand, RelayCommand};
+use console::Console;
 use mini_moka::sync::Cache;
-use nanoid::nanoid;
-use serde::Serialize;
+use serde::Deserialize;
+use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use traccia::{LogLevel, fatal, info};
+
+mod commands;
 
 #[derive(Debug, Parser)]
 #[command(author, version, about)]
@@ -28,7 +34,7 @@ fn default_level() -> LogLevel {
     }
 }
 
-type ClientMap = Cache<String, ()>;
+pub type ClientMap = Cache<String, reqwest::Client>;
 
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
@@ -45,10 +51,19 @@ async fn main() -> tokio::io::Result<()> {
         }
     };
 
-    let clients: ClientMap = Cache::new(10_000);
+    let relays: ClientMap = Cache::new(100);
+    let console = Console::new()
+        .case_sensitive(false)
+        .prompt("> ")
+        .command(ClearCommand)
+        .command(RelayCommand(relays.clone()));
+
+    let console_handle = tokio::spawn(console.run());
+
     let app = Router::new()
+        .route("/greet/{name}", get(greet))
         .route("/room/create", post(create_room))
-        .with_state(clients);
+        .with_state(relays);
 
     let listener = match TcpListener::bind(addr).await {
         Ok(listener) => listener,
@@ -58,25 +73,40 @@ async fn main() -> tokio::io::Result<()> {
         }
     };
 
-    info!("Relay listening on {}", addr);
+    info!("Hub listening on {}", addr);
 
     if let Err(e) = axum::serve(listener, app).await {
         fatal!("Error during serve:{}", e)
     }
 
+    _ = console_handle.await.unwrap();
+
     Ok(())
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize)]
 struct CreateRoomResponse {
     id: String,
 }
 
-async fn create_room(State(clients): State<ClientMap>) -> impl IntoResponse {
-    let id = nanoid!();
+async fn create_room(State(relays): State<ClientMap>) {
+    for entry in relays.iter() {
+        let addr = entry.key();
+        let client = entry.value();
 
-    info!("Creating room with {}", id);
+        let req = client.post(format!("http://{}/room/create", addr)).build().unwrap();
+        let res = client.execute(req).await.unwrap();
 
-    let payload = CreateRoomResponse { id };
-    (StatusCode::CREATED, Json(payload))
+        let body: CreateRoomResponse = res.json().await.unwrap();
+
+        info!(
+            "Room created with id: {} on relay with address {}",
+            body.id, addr
+        );
+    }
+}
+
+async fn greet(Path(name): Path<String>) -> String {
+    info!("Greeting:{}", name);
+    format!("Hello, {}!", name)
 }

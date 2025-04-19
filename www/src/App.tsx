@@ -1,19 +1,19 @@
-import { BrowserRouter, Route, Routes } from "react-router";
-import { LoginPage } from "~/pages/login";
-import { HomePage } from "~/pages/home";
-import { useUser } from "./states/user";
-import { useEffect } from "react";
+import { useState } from "react";
 
 function App() {
-  const user = useUser();
+  const [count, setCount] = useState<number>(0);
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/session" element={<LoginPage />} />
-      </Routes>
-    </BrowserRouter>
+    // <BrowserRouter>
+    //   <Routes>
+    //     <Route path="/" element={<HomePage />} />
+    //     <Route path="/session" element={<LoginPage />} />
+    //   </Routes>
+    // </BrowserRouter>
+    <div>
+      <p>Count: {count}</p>
+      <button onClick={() => setCount(i => i + 1)}>increase</button>
+    </div>
   );
 }
 

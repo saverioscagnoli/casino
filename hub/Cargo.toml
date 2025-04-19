@@ -1,5 +1,5 @@
 [package]
-name = "relay"
+name = "hub"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,8 +7,9 @@ edition = "2024"
 axum = "0.8.3"
 clap = { version = "4.5.37", features = ["derive"] }
 mini-moka = "0.10.3"
-nanoid = "0.4.0"
+reqwest = { version = "0.12.15", features = ["json"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 tokio = { version = "1.44.2", features = ["full"] }
 traccia = "2.2.1"
+console = { path = "../console" }
