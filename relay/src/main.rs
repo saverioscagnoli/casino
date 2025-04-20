@@ -1,10 +1,12 @@
-use std::net::SocketAddr;
-
 use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::post};
 use clap::Parser;
-use mini_moka::sync::Cache;
 use nanoid::nanoid;
-use serde::Serialize;
+use shared::{
+    Cache,
+    consts::MAX_ROOMS,
+    response::{CreateRoomResponse, RoomPrivacy},
+};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpListener;
 use traccia::{LogLevel, fatal, info};
 
@@ -28,7 +30,12 @@ fn default_level() -> LogLevel {
     }
 }
 
-type ClientMap = Cache<String, ()>;
+#[derive(Clone)]
+struct AppState {
+    /// Map to save room_id -> client data (String is a placeholder)
+    rooms: Cache<String, Vec<String>>,
+    addr: Arc<String>,
+}
 
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
@@ -45,10 +52,15 @@ async fn main() -> tokio::io::Result<()> {
         }
     };
 
-    let clients: ClientMap = Cache::new(10_000);
+    let rooms = Cache::with_capacity(MAX_ROOMS);
+    let state = AppState {
+        rooms,
+        addr: addr.to_string().into(),
+    };
+
     let app = Router::new()
         .route("/room/create", post(create_room))
-        .with_state(clients);
+        .with_state(state);
 
     let listener = match TcpListener::bind(addr).await {
         Ok(listener) => listener,
@@ -67,16 +79,24 @@ async fn main() -> tokio::io::Result<()> {
     Ok(())
 }
 
-#[derive(Serialize)]
-struct CreateRoomResponse {
-    id: String,
-}
+/// POST /room/create
+///
+/// Checks for available room space and creates it if it can.
+/// Sends the room data back with self address for websocket connection with client
+async fn create_room(State(state): State<AppState>) -> impl IntoResponse {
+    if state.rooms.len().await == MAX_ROOMS {
+        return StatusCode::INSUFFICIENT_STORAGE.into_response();
+    }
 
-async fn create_room(State(clients): State<ClientMap>) -> impl IntoResponse {
-    let id = nanoid!();
+    let room_id = nanoid!();
 
-    info!("Creating room with {}", id);
+    info!("Creating room with {}", room_id);
 
-    let payload = CreateRoomResponse { id };
-    (StatusCode::CREATED, Json(payload))
+    let payload = CreateRoomResponse {
+        id: room_id,
+        privacy: RoomPrivacy::Public,
+        relay_addr: state.addr.to_string(),
+    };
+
+    (StatusCode::CREATED, Json(payload)).into_response()
 }

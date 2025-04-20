@@ -4,10 +4,9 @@ use console::{
     Command, CommandExecutor, async_trait,
     op::{Clear, ClearKind, PrintLn},
 };
-use mini_moka::sync::ConcurrentCacheExt;
-use tokio::io;
 
-use crate::ClientMap;
+use shared::Cache;
+use tokio::io;
 
 pub struct ClearCommand;
 
@@ -27,7 +26,7 @@ impl Command for ClearCommand {
     }
 }
 
-pub struct RelayCommand(pub ClientMap);
+pub struct RelayCommand(pub Cache<String, reqwest::Client>);
 
 #[async_trait]
 impl Command for RelayCommand {
@@ -45,7 +44,7 @@ impl Command for RelayCommand {
             ["add", ip] => match ip.parse() {
                 Ok::<SocketAddr, _>(addr) => {
                     let client = reqwest::Client::new();
-                    self.0.insert(addr.to_string(), client);
+                    self.0.insert(addr.to_string(), client).await;
 
                     stdout.execute(PrintLn("Relay added successfully.")).await?;
                 }
@@ -57,13 +56,12 @@ impl Command for RelayCommand {
             },
 
             ["list"] => {
-                self.0.sync();
-
+                let lock = self.0.read().await;
                 let mut n = 0;
 
-                for (i, entry) in self.0.iter().enumerate() {
+                for (i, (addr, _)) in lock.iter().enumerate() {
                     stdout
-                        .execute(PrintLn(format!("{}) {}", i + 1, entry.key())))
+                        .execute(PrintLn(format!("{}) {}", i + 1, addr)))
                         .await?;
 
                     n += 1;

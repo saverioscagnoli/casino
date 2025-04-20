@@ -1,18 +1,21 @@
 use axum::{
-    Router,
+    Json, Router,
     extract::{Path, State},
+    response::IntoResponse,
     routing::{get, post},
 };
 use clap::Parser;
 use commands::{ClearCommand, RelayCommand};
 use console::Console;
-use mini_moka::sync::Cache;
-use serde::Deserialize;
+use endpoints::Endpoint;
+use reqwest::StatusCode;
+use shared::{Cache, consts::MAX_RELAYS, response::CreateRoomResponse};
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
-use traccia::{LogLevel, fatal, info};
+use traccia::{LogLevel, error, fatal, info};
 
 mod commands;
+mod endpoints;
 
 #[derive(Debug, Parser)]
 #[command(author, version, about)]
@@ -34,7 +37,13 @@ fn default_level() -> LogLevel {
     }
 }
 
-pub type ClientMap = Cache<String, reqwest::Client>;
+#[derive(Clone)]
+struct AppState {
+    relays: Cache<String, reqwest::Client>,
+    /// Maps the id of the room mapped to the id of the relay
+    /// Used for quick join access
+    room_cache: Cache<String, String>,
+}
 
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
@@ -51,7 +60,7 @@ async fn main() -> tokio::io::Result<()> {
         }
     };
 
-    let relays: ClientMap = Cache::new(100);
+    let relays = Cache::with_capacity(MAX_RELAYS);
     let console = Console::new()
         .case_sensitive(false)
         .prompt("> ")
@@ -59,11 +68,15 @@ async fn main() -> tokio::io::Result<()> {
         .command(RelayCommand(relays.clone()));
 
     let console_handle = tokio::spawn(console.run());
+    let state = AppState {
+        relays,
+        room_cache: Cache::new(),
+    };
 
     let app = Router::new()
         .route("/greet/{name}", get(greet))
         .route("/room/create", post(create_room))
-        .with_state(relays);
+        .with_state(state);
 
     let listener = match TcpListener::bind(addr).await {
         Ok(listener) => listener,
@@ -84,26 +97,57 @@ async fn main() -> tokio::io::Result<()> {
     Ok(())
 }
 
-#[derive(Deserialize)]
-struct CreateRoomResponse {
-    id: String,
-}
+/// POST /room/create
+/// Manages the internal relay map state
+///
+/// Checks for a relay with a room available and returns the first one
+async fn create_room(State(state): State<AppState>) -> impl IntoResponse {
+    let lock = state.relays.read().await;
 
-async fn create_room(State(relays): State<ClientMap>) {
-    for entry in relays.iter() {
-        let addr = entry.key();
-        let client = entry.value();
+    for (addr, client) in lock.iter() {
+        let endpoint = Endpoint::CreateRoom(addr.to_string());
 
-        let req = client.post(format!("http://{}/room/create", addr)).build().unwrap();
-        let res = client.execute(req).await.unwrap();
+        let req = match client.post(endpoint.url()).build() {
+            Ok(req) => req,
+            Err(e) => {
+                error!("Failed to build request: {}", e);
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
 
-        let body: CreateRoomResponse = res.json().await.unwrap();
+        let res = match client.execute(req).await {
+            Ok(res) => res,
+            Err(e) => {
+                error!("{}", e);
+                continue;
+            }
+        };
+
+        if !res.status().is_success() {
+            continue;
+        }
+
+        let body = match res.json::<CreateRoomResponse>().await {
+            Ok(body) => body,
+            Err(e) => {
+                error!("Failed to deserialize body: {}", e);
+                return StatusCode::BAD_REQUEST.into_response();
+            }
+        };
 
         info!(
             "Room created with id: {} on relay with address {}",
             body.id, addr
         );
+
+        return (StatusCode::OK, Json(body)).into_response();
     }
+
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "There are no rooms available",
+    )
+        .into_response()
 }
 
 async fn greet(Path(name): Path<String>) -> String {

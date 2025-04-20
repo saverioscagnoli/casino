@@ -1,14 +1,6 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod consts;
+pub mod response;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod cache;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use cache::Cache;
