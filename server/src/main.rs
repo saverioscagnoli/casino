@@ -1,7 +1,11 @@
-use axum::{Router, routing::get};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 use clap::Parser;
-use commands::{ClearCommand, HelpCommand};
+use commands::{ClearCommand, HelpCommand, RelayCommand};
 use console::{Command, Console};
+use shared::ConcurrentHashMap;
 use std::net::{IpAddr, SocketAddr};
 use tokio::net::TcpListener;
 use traccia::info;
@@ -22,13 +26,32 @@ struct Args {
     port: u16,
 }
 
+#[derive(Clone)]
+struct AppState {
+    relays: ConcurrentHashMap<SocketAddr, reqwest::Client>,
+
+    /// RoomID -> relay address
+    /// Useful for relays to know where to send messages,
+    /// like when a user joins a room.
+    room_cache: ConcurrentHashMap<String, SocketAddr>,
+}
+
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
     let args = Args::parse();
 
     log::setup_logging();
 
-    let app = Router::new().route("/ping", get(routes::get::ping));
+    let state = AppState {
+        relays: ConcurrentHashMap::new(),
+        room_cache: ConcurrentHashMap::new(),
+    };
+    let app = Router::new()
+        .route("/ping", get(routes::get::ping))
+        .route("/session", post(routes::post::session))
+        .route("/room/create", post(routes::post::create_room))
+        .with_state(state.clone());
+
     let addr = SocketAddr::new(args.addr, args.port);
     let listener = TcpListener::bind(addr).await?;
 
@@ -37,12 +60,15 @@ async fn main() -> tokio::io::Result<()> {
         axum::serve(listener, app).await
     });
 
-    let commands = vec![(ClearCommand.name(), ClearCommand.description())];
+    let relay_command = RelayCommand(state.relays.clone());
 
     let console_handle = tokio::spawn(async move {
+        let commands = vec![(ClearCommand.name(), ClearCommand.description())];
+
         Console::new()
             .command(ClearCommand)
             .command(HelpCommand(commands))
+            .command(relay_command)
             .case_sensitive(false)
             .prompt("> ")
             .run()

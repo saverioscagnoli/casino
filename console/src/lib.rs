@@ -433,18 +433,6 @@ impl Console {
                 // Else its a normal character
 
                 match byte {
-                    b'a'..=b'z' | b' ' => {
-                        line.push(byte as char);
-
-                        stdout.execute(Print(byte as char)).await?;
-
-                        let key = Key::from_byte(byte);
-
-                        if let Some(ref mut handler) = self.options.handler {
-                            handler.on_keypress(&mut stdout, key).await?;
-                        }
-                    }
-
                     0x7f => {
                         if !line.is_empty() {
                             line.pop();
@@ -495,7 +483,17 @@ impl Console {
                         line.clear();
                     }
 
-                    _ => {}
+                    _ => {
+                        line.push(byte as char);
+
+                        stdout.execute(Print(byte as char)).await?;
+
+                        let key = Key::from_byte(byte);
+
+                        if let Some(ref mut handler) = self.options.handler {
+                            handler.on_keypress(&mut stdout, key).await?;
+                        }
+                    }
                 }
             }
         }

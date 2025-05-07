@@ -1,5 +1,8 @@
+use std::net::SocketAddr;
+
 use async_trait::async_trait;
 use console::{AsyncExecute, Clear, PrintLn};
+use shared::ConcurrentHashMap;
 use tokio::io;
 
 /// Help command
@@ -25,6 +28,7 @@ impl console::Command for HelpCommand {
                 .execute(PrintLn(format!("{}: {}", name, description)))
                 .await?;
         }
+
         Ok(())
     }
 }
@@ -43,6 +47,61 @@ impl console::Command for ClearCommand {
 
     async fn execute(&mut self, stdout: &mut io::Stdout, _: &[&str]) -> tokio::io::Result<()> {
         stdout.execute(Clear).await?;
+        Ok(())
+    }
+}
+
+pub struct RelayCommand(pub ConcurrentHashMap<SocketAddr, reqwest::Client>);
+
+#[async_trait]
+impl console::Command for RelayCommand {
+    fn name(&self) -> &str {
+        "relay"
+    }
+
+    fn description(&self) -> &str {
+        "Manages relay connections"
+    }
+
+    async fn execute(&mut self, stdout: &mut io::Stdout, args: &[&str]) -> tokio::io::Result<()> {
+        match args {
+            ["add"] => {
+                stdout.execute(PrintLn("Usage: relay add <ipaddr>")).await?;
+            }
+
+            ["add", addr, ..] => {
+                let client = reqwest::Client::new();
+                let addr = match addr.parse::<SocketAddr>() {
+                    Ok(addr) => addr,
+                    Err(_) => {
+                        stdout.execute(PrintLn("Invalid address!")).await?;
+                        return Ok(());
+                    }
+                };
+
+                let relay = format!("http://{}/healthcheck", addr);
+
+                match client.get(&relay).send().await {
+                    Ok(_) => {
+                        self.0.insert(addr, client);
+                        stdout
+                            .execute(PrintLn(format!("Successfully added relay: {}", addr)))
+                            .await?;
+                    }
+
+                    Err(e) => {
+                        stdout
+                            .execute(PrintLn(format!("Failed to connect to relay: {}", e)))
+                            .await?;
+                    }
+                }
+            }
+
+            _ => {
+                stdout.execute(PrintLn("Usage: relay <command>")).await?;
+            }
+        }
+
         Ok(())
     }
 }
