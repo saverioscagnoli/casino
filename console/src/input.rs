@@ -1,3 +1,15 @@
+//! This module handles input events from the user.
+//! It defines the `Key` enum to represent different keys
+//! and provides methods to convert byte sequences
+//! to `Key` values.
+
+/// The `Key` enum represents different keys
+/// that can be pressed on the keyboard.
+/// It includes letters, arrow keys,
+/// space, enter, and backspace.
+///
+/// Some keys require a specific byte sequence
+/// to be recognized, such as arrow keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
     A,

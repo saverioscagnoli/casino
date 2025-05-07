@@ -82,11 +82,7 @@ async fn main() {
         .command(HelloCommand)
         .command(GreetCommand)
         .default_command(DefaultCommand)
-        .prompt(|| format!("> "))
-        .welcome_message(|| {
-            let version = env!("CARGO_PKG_VERSION");
-            format!("Welcome to Console v{}", version)
-        });
+        .prompt("-> ");
 
     _ = console.run().await;
 }

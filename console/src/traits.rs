@@ -25,13 +25,13 @@ impl<W: AsyncWriteExt + Unpin + Send> AsyncExecute for W {
 }
 
 #[async_trait]
-pub trait Command {
+pub trait Command: Send + Sync {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
     async fn execute(&mut self, stdout: &mut io::Stdout, args: &[&str]) -> io::Result<()>;
 }
 
 #[async_trait]
-pub trait ConsoleHandler {
+pub trait ConsoleHandler: Send + Sync {
     async fn on_keypress(&mut self, stdout: &mut io::Stdout, key: Key) -> io::Result<()>;
 }

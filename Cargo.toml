@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["console"]
+members = ["console", "server"]
 
 [dependencies]
+
+[[bin]]
+name = "casino"
+path = "src/main.rs"
