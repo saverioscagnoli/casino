@@ -1,9 +1,0 @@
-@import "tailwindcss";
-
-@import "@radix-ui/colors/slate.css";
-@import "@radix-ui/colors/slate-dark.css";
-
-body {
-  background-color: var(--slate-1);
-  color: var(--slate-12);
-}

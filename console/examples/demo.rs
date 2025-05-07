@@ -1,111 +1,92 @@
-use std::str::FromStr;
+use async_trait::async_trait;
+use console::{AsyncExecute, Console, PrintLn};
+use tokio::io;
 
-use console::{
-    Command, CommandExecutor, Console, async_trait,
-    op::{Clear, ClearKind, PrintLn},
-};
-use tokio::io::Stdout;
-use traccia::{LogLevel, info, log, warn};
-
-struct ClearCommand;
+struct HelloCommand;
 
 #[async_trait]
-impl Command for ClearCommand {
+impl console::Command for HelloCommand {
     fn name(&self) -> &str {
-        "clear"
+        "hello"
     }
 
     fn description(&self) -> &str {
-        "Clears the console"
+        "Prints 'Hello, World!'"
     }
 
-    async fn execute(&mut self, stdout: &mut Stdout, _args: Vec<&str>) -> tokio::io::Result<()> {
-        stdout.execute(Clear(ClearKind::All)).await
+    async fn execute(&mut self, stdout: &mut io::Stdout, _args: &[&str]) -> io::Result<()> {
+        stdout.execute(PrintLn("Hello, World!")).await?;
+        Ok(())
     }
 }
 
-struct LogCommand;
+struct GreetCommand;
 
 #[async_trait]
-impl Command for LogCommand {
+impl console::Command for GreetCommand {
     fn name(&self) -> &str {
-        "log"
+        "greet"
     }
 
     fn description(&self) -> &str {
-        "Logs a message to the console"
+        "Greets the user"
     }
 
-    async fn execute(&mut self, _stdout: &mut Stdout, args: Vec<&str>) -> tokio::io::Result<()> {
-        if args.is_empty() {
-            warn!("Nothing to log.");
-            return Ok(());
-        }
+    async fn execute(&mut self, stdout: &mut io::Stdout, args: &[&str]) -> io::Result<()> {
+        match &args[..] {
+            [] => {
+                stdout.execute(PrintLn("Hello!")).await?;
+            }
 
-        let level = LogLevel::from_str(args[0]);
+            [name] => {
+                stdout.execute(PrintLn(format!("Hello, {}!", name))).await?;
+            }
 
-        let (level, message) = match level {
-            Ok(level) if args.len() > 1 => (Some(level), args[1..].join(" ")),
-            _ => (None, args.join(" ")),
-        };
-
-        if message.trim().is_empty() {
-            warn!("Nothing to log.");
-            return Ok(());
-        }
-
-        match level {
-            Some(lvl) => log!(lvl, "{}", message),
-            None => info!("{}", message),
+            _ => {
+                stdout.execute(PrintLn("Usage: greet [name]")).await?;
+            }
         }
 
         Ok(())
     }
 }
 
-struct HelpCommand;
-
-impl HelpCommand {
-    const COMMANDS: &[&dyn Command] = &[&HelpCommand, &LogCommand, &ClearCommand];
-}
+struct DefaultCommand;
 
 #[async_trait]
-impl Command for HelpCommand {
+impl console::Command for DefaultCommand {
     fn name(&self) -> &str {
-        "help"
+        "default"
     }
 
     fn description(&self) -> &str {
-        "Displays information for all the commands"
+        "Default command"
     }
 
-    async fn execute(&mut self, stdout: &mut Stdout, _args: Vec<&str>) -> tokio::io::Result<()> {
-        let mut text = String::new();
-
-        for command in Self::COMMANDS {
-            text.push_str(&format!("{} - {}\n", command.name(), command.description()));
+    async fn execute(&mut self, stdout: &mut io::Stdout, args: &[&str]) -> io::Result<()> {
+        if let Some(name) = args.get(0) {
+            stdout
+                .execute(PrintLn(format!("Unknown command: '{}'", name)))
+                .await?;
+        } else {
+            stdout.execute(PrintLn("Unknown command.")).await?;
         }
 
-        stdout.execute(PrintLn(text)).await
+        Ok(())
     }
 }
 
 #[tokio::main]
 async fn main() {
-    traccia::init(LogLevel::Trace);
+    let mut console = Console::new()
+        .command(HelloCommand)
+        .command(GreetCommand)
+        .default_command(DefaultCommand)
+        .prompt(|| format!("> "))
+        .welcome_message(|| {
+            let version = env!("CARGO_PKG_VERSION");
+            format!("Welcome to Console v{}", version)
+        });
 
-    _ = Console::new()
-        .command(ClearCommand)
-        .command(LogCommand)
-        .command(HelpCommand)
-        .default_callback(|mut stdout, bad| async move {
-            stdout
-                .execute(PrintLn(format!("Unknown command '{}'", bad)))
-                .await?;
-
-            Ok(())
-        })
-        .prompt("> ")
-        .run()
-        .await
+    _ = console.run().await;
 }

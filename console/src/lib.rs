@@ -1,290 +1,295 @@
+mod input;
+mod mode;
+mod ops;
 mod traits;
-mod util;
 
-pub mod op;
+use std::time::Duration;
+use tokio::{
+    io::{self, AsyncReadExt},
+    time::timeout,
+};
 
-pub use async_trait::async_trait;
-pub use traits::{Command, CommandExecutor};
-use util::{BoxAsyncFn, RawModeGuard, box_async_fn};
-pub use util::{disable_raw_mode, enable_raw_mode};
+pub use input::*;
+pub use mode::*;
+pub use ops::*;
+pub use traits::*;
 
-use op::Print;
-use tokio::io::AsyncReadExt;
+struct History {
+    items: Vec<String>,
+    index: usize,
+}
 
-/// A terminal console implementation that processes input commands.
-///
-/// This console creates an infinite loop that reads user input
-/// and executes commands based on that input.
-///
-/// # Example
-///
-/// ```no_run
-/// use console::Console;
-/// use console::Command;
-///
-/// #[tokio::main]
-/// async fn main() -> tokio::io::Result<()> {
-///     Console::new()
-///         .prompt("> ")
-///         .command(MyCustomCommand)
-///         .run()
-///         .await
-/// }
-/// ```
+impl History {
+    fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            index: 0,
+        }
+    }
+}
+
+pub struct Options {
+    pub exit_signal: char,
+    pub prompt: Option<Box<dyn Fn() -> String>>,
+    pub welcome_message: Option<Box<dyn Fn() -> String>>,
+    pub case_sensitive: bool,
+    pub handler: Option<Box<dyn ConsoleHandler>>,
+    pub default_command: Option<Box<dyn Command>>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            exit_signal: '\x03',
+            prompt: None,
+            welcome_message: None,
+            case_sensitive: false,
+            handler: None,
+            default_command: None,
+        }
+    }
+}
+
 pub struct Console {
-    prompt: Option<String>,
-    prompt_on_start: bool,
-    exit_signal: char,
     commands: Vec<Box<dyn Command>>,
-    default_callback: Option<BoxAsyncFn>,
-    case_sensitive: bool,
+    options: Options,
+    history: History,
 }
 
 impl Console {
-    /// Creates a new console instance with default settings.
-    ///
-    /// The default console has no prompt, uses CTRL+C as exit signal,
-    /// and has no registered commands.
     pub fn new() -> Self {
         Self {
-            prompt: None,
-            prompt_on_start: true,
-            exit_signal: '\x03',
             commands: Vec::new(),
-            default_callback: None,
-            case_sensitive: true,
+            options: Options::default(),
+            history: History::new(),
         }
     }
 
-    /// Sets the prompt string for the console.
-    ///
-    /// The prompt will be displayed before each input line.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use console::Console;
-    ///
-    /// let console = Console::new()
-    ///     .prompt("user@localhost:~$ ");
-    /// ```
-    pub fn prompt<S: Into<String>>(mut self, prompt: S) -> Self {
-        self.prompt = Some(prompt.into());
+    #[inline]
+    pub fn prompt<F: Fn() -> String + 'static>(mut self, prompt: F) -> Self {
+        self.options.prompt = Some(Box::new(prompt));
         self
     }
 
-    pub fn prompt_on_start(mut self, value: bool) -> Self {
-        self.prompt_on_start = value;
+    #[inline]
+    pub fn welcome_message<F: Fn() -> String + 'static>(mut self, message: F) -> Self {
+        self.options.welcome_message = Some(Box::new(message));
         self
     }
 
-    /// Changes the character that signals console termination.
-    ///
-    /// By default, this is set to '\x03' (CTRL+C).
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use console::Console;
-    ///
-    /// // Set 'q' as the exit character
-    /// let console = Console::new()
-    ///     .exit_signal('q');
-    /// ```
-    pub fn exit_signal<C: Into<char>>(mut self, ch: C) -> Self {
-        self.exit_signal = ch.into();
+    #[inline]
+    pub fn case_sensitive(mut self, case_sensitive: bool) -> Self {
+        self.options.case_sensitive = case_sensitive;
         self
     }
 
-    /// Registers a command handler to the console.
-    ///
-    /// Commands are identified by their name and executed when the user
-    /// types that name at the console.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use console::{Console, Command};
-    ///
-    /// struct ClearCommand;
-    /// // Implement Command trait for ClearCommand...
-    ///
-    /// let console = Console::new()
-    ///     .command(ClearCommand);
-    /// ```
+    #[inline]
     pub fn command<C: Command + 'static>(mut self, command: C) -> Self {
         self.commands.push(Box::new(command));
         self
     }
 
-    /// Sets a default callback to execute when no specific command is entered.
-    ///
-    /// This function allows you to define a fallback behavior that runs when the user
-    /// presses Enter without typing a command. This is useful for providing help messages,
-    /// status summaries, or other default responses.
-    ///
-    /// # Arguments
-    ///
-    /// * `callback` - A closure or function that takes a mutable reference to `tokio::io::Stdout`
-    ///   and the bad command name, allowing you to define custom behavior.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use console::Console;
-    /// use tokio::io::{self, Stdout};
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> io::Result<()> {
-    ///     let console = Console::new()
-    ///         .default_callback(|stdout: &mut Stdout, input: &str| {
-    ///             use std::io::Write;
-    ///             writeln!(stdout, "No command entered. You typed: '{}'", input).unwrap();
-    ///         });
-    ///
-    ///     // continue running your console loop...
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// - This does not override command-specific behavior; it only applies when no command is matched.
-    /// - The callback is stored in a boxed closure with `'static` lifetime, so it can capture environment variables or state if needed.
-
-    pub fn default_callback<F, Fut>(mut self, callback: F) -> Self
-    where
-        F: Fn(tokio::io::Stdout, String) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = tokio::io::Result<()>> + Send + 'static,
-    {
-        self.default_callback = Some(box_async_fn(callback));
+    #[inline]
+    pub fn default_command<C: Command + 'static>(mut self, command: C) -> Self {
+        self.options.default_command = Some(Box::new(command));
         self
     }
 
-    /// Sets whether command matching should be case-sensitive.
-    ///
-    /// By default, command matching is case-sensitive.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use console::Console;
-    ///
-    /// // Make command matching case-insensitive
-    /// let console = Console::new()
-    ///     .case_sensitive(false);
-    /// ```
-    pub fn case_sensitive(mut self, value: bool) -> Self {
-        self.case_sensitive = value;
+    #[inline]
+    pub fn exit_signal(mut self, signal: char) -> Self {
+        self.options.exit_signal = signal;
         self
     }
 
-    /// Searches for a command by its name.
-    ///
-    /// Respects the case_sensitive setting when matching.
+    #[inline]
+    pub fn handler<H: ConsoleHandler + 'static>(mut self, handler: H) -> Self {
+        self.options.handler = Some(Box::new(handler));
+        self
+    }
+
     fn find_command(&mut self, name: &str) -> Option<&mut Box<dyn Command>> {
-        if self.case_sensitive {
-            self.commands.iter_mut().find(|c| c.name() == name)
-        } else {
-            self.commands
-                .iter_mut()
-                .find(|c| c.name().eq_ignore_ascii_case(name))
-        }
+        self.commands.iter_mut().find(|cmd| {
+            if self.options.case_sensitive {
+                cmd.name() == name
+            } else {
+                cmd.name().eq_ignore_ascii_case(name)
+            }
+        })
     }
 
-    /// Starts the console input loop.
-    ///
-    /// This method blocks until the exit signal is received.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use console::Console;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> tokio::io::Result<()> {
-    ///     Console::new()
-    ///         .prompt("> ")
-    ///         .run()
-    ///         .await
-    /// }
-    /// ```
-    pub async fn run(mut self) -> tokio::io::Result<()> {
-        let mut stdout = tokio::io::stdout();
-        let mut stdin = tokio::io::stdin();
-        let mut line = String::new(); // Buffer to store user input
+    async fn read_escape_sequence<R: AsyncReadExt + Unpin>(
+        &self,
+        reader: &mut R,
+    ) -> io::Result<Option<Key>> {
+        let mut second_byte = [0u8; 1];
 
-        let _mode_guard = RawModeGuard::new()?;
+        if timeout(
+            Duration::from_millis(10),
+            reader.read_exact(&mut second_byte),
+        )
+        .await
+        .is_err()
+        {
+            return Ok(None);
+        }
 
-        if self.prompt_on_start {
-            if let Some(ref prompt) = self.prompt {
-                stdout.execute(Print(prompt)).await?;
-            }
+        if second_byte[0] != 0x5b {
+            return Ok(None);
+        }
+
+        let mut third_byte = [0u8; 1];
+
+        if timeout(
+            Duration::from_millis(10),
+            reader.read_exact(&mut third_byte),
+        )
+        .await
+        .is_err()
+        {
+            return Ok(None);
+        }
+
+        Ok(Key::from_bytes(&[0x1b, 0x5b, third_byte[0]]))
+    }
+
+    pub async fn run(&mut self) -> io::Result<()> {
+        let mut stdout = io::stdout();
+        let mut stdin = io::stdin();
+        let mut line = String::new();
+
+        let _raw_mode_guard = RawModeGuard::new().expect("Failed to enable raw mode");
+
+        if let Some(ref message) = self.options.welcome_message {
+            stdout.execute(PrintLn(message())).await?;
+        }
+
+        if let Some(ref prompt) = self.options.prompt {
+            stdout.execute(Print(prompt())).await?;
         }
 
         loop {
-            // Read one character at a time
-            let mut buf = [0u8; 1];
+            let mut first_byte = [0u8; 1];
+            stdin.read_exact(&mut first_byte).await?;
 
-            stdin.read_exact(&mut buf).await?;
+            let byte = first_byte[0];
 
-            let ch: char = buf[0].into();
+            if byte == 0x1b {
+                if let Some(key) = self.read_escape_sequence(&mut stdin).await? {
+                    match key {
+                        Key::ArrowUp => {
+                            if self.history.index > 0 {
+                                self.history.index -= 1;
+                                stdout.execute(ClearLine).await?;
+                                stdout.execute(MoveToColumn(0)).await?;
 
-            match ch {
-                '\n' => {
-                    stdout.execute(Print("\n")).await?;
+                                if let Some(ref prompt) = self.options.prompt {
+                                    stdout.execute(Print(prompt())).await?;
+                                }
 
-                    let mut parts = line.split_whitespace();
-                    let command_name = parts.next();
+                                line = self.history.items[self.history.index].clone();
+                                stdout.execute(Print(&line)).await?;
+                            }
+                        }
 
-                    // Search for a valid command
-                    // If found, parse the args and execute it
-                    if let Some(name) = command_name {
-                        if let Some(command) = self.find_command(&name) {
-                            command
-                                .execute(&mut stdout, parts.collect::<Vec<_>>())
-                                .await?;
-                        } else if let Some(ref callback) = self.default_callback {
-                            callback(tokio::io::stdout(), name.to_string()).await?;
+                        Key::ArrowDown => {
+                            if self.history.index + 1 < self.history.items.len() {
+                                self.history.index += 1;
+                                stdout.execute(ClearLine).await?;
+                                stdout.execute(MoveToColumn(0)).await?;
+
+                                if let Some(ref prompt) = self.options.prompt {
+                                    stdout.execute(Print(prompt())).await?;
+                                }
+
+                                line = self.history.items[self.history.index].clone();
+                                stdout.execute(Print(&line)).await?;
+                            } else {
+                                self.history.index = self.history.items.len();
+                                stdout.execute(ClearLine).await?;
+                                stdout.execute(MoveToColumn(0)).await?;
+
+                                if let Some(ref prompt) = self.options.prompt {
+                                    stdout.execute(Print(prompt())).await?;
+                                }
+
+                                line.clear();
+                            }
+                        }
+
+                        _ => {}
+                    }
+
+                    if let Some(ref mut handler) = self.options.handler {
+                        handler.on_keypress(&mut stdout, key).await?;
+                    }
+                }
+            } else {
+                match byte {
+                    b'a'..=b'z' | b' ' => {
+                        line.push(byte as char);
+
+                        stdout.execute(Print(byte as char)).await?;
+
+                        let key = Key::from_byte(byte);
+
+                        if let Some(ref mut handler) = self.options.handler {
+                            handler.on_keypress(&mut stdout, key).await?;
                         }
                     }
 
-                    // Clear input buffer
-                    line.clear();
+                    0x7f => {
+                        if !line.is_empty() {
+                            line.pop();
+                            stdout.execute(Backspace(1)).await?;
+                        }
 
-                    if let Some(ref prompt) = self.prompt {
-                        stdout.execute(Print(prompt)).await?;
+                        if let Some(ref mut handler) = self.options.handler {
+                            handler.on_keypress(&mut stdout, Key::Backspace).await?;
+                        }
                     }
-                }
 
-                // Handle backspace,
-                // pop the buffer and cancel last character
-                // Move cursor back, overwrite with space, and move back again
-                '\x08' | '\x7f' => {
-                    if !line.is_empty() {
-                        line.pop();
-                        stdout.execute(Print("\x08 \x08")).await?;
+                    b'\n' => {
+                        stdout.execute(Print('\n')).await?;
+
+                        if let Some(ref mut handler) = self.options.handler {
+                            handler.on_keypress(&mut stdout, Key::Enter).await?;
+                        }
+
+                        if line.is_empty() {
+                            if let Some(ref prompt) = self.options.prompt {
+                                stdout.execute(Print(prompt())).await?;
+                            }
+
+                            continue;
+                        }
+
+                        let parts = line.split_whitespace().collect::<Vec<_>>();
+
+                        if parts.is_empty() {
+                            continue;
+                        }
+
+                        let name = parts[0];
+
+                        if let Some(command) = self.find_command(name) {
+                            let args = &parts[1..];
+                            command.execute(&mut stdout, args).await?;
+                        } else if let Some(ref mut default_command) = self.options.default_command {
+                            default_command.execute(&mut stdout, &parts).await?;
+                        }
+
+                        if let Some(ref prompt) = self.options.prompt {
+                            stdout.execute(Print(prompt())).await?;
+                        }
+
+                        self.history.items.push(line.clone());
+                        self.history.index = self.history.items.len();
+                        line.clear();
                     }
-                }
 
-                // Handle exit signal, break the loop when sent
-                s if s == self.exit_signal => {
-                    stdout.execute(Print("\n")).await?;
-                    break;
-                }
-
-                // Regular line characters
-                // This displays the line as being typed
-                _ => {
-                    // Append the character to the buffer
-                    line.push(ch);
-                    stdout.execute(Print(ch)).await?;
+                    _ => {}
                 }
             }
         }
-
-        // Here mode_guard will be dropped and will disable raw mode
-        Ok(())
     }
 }
