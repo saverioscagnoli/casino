@@ -1,5 +1,9 @@
-use axum::{Router, routing::get};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 use clap::Parser;
+use shared::ConcurrentHashMap;
 use std::net::{IpAddr, SocketAddr};
 use tokio::net::TcpListener;
 
@@ -19,6 +23,12 @@ struct Args {
     port: u16,
 }
 
+#[derive(Clone)]
+struct AppState {
+    /// Relay address -> array of socket clients
+    rooms: ConcurrentHashMap<String, String>,
+}
+
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
     let args = Args::parse();
@@ -28,7 +38,13 @@ async fn main() -> tokio::io::Result<()> {
         .await
         .expect("Failed to bind to address");
 
-    let app = Router::new().route("/healthcheck", get(routes::get::healthcheck));
+    let state = AppState {
+        rooms: ConcurrentHashMap::new(),
+    };
+    let app = Router::new()
+        .route("/healthcheck", get(routes::get::healthcheck))
+        .route("/room/create", post(routes::post::create_room))
+        .with_state(state);
 
     axum::serve(listener, app)
         .await

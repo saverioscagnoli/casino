@@ -1164,8 +1164,10 @@ dependencies = [
  "axum",
  "clap",
  "fastwebsockets",
+ "shared",
  "tokio",
  "traccia",
+ "uuid",
 ]
 
 [[package]]
